@@ -9,20 +9,29 @@ This document tests the **currently deployed** stack — no redeployment needed.
 ## What you'll need
 
 - A modern browser
-- Optionally: a terminal with the `aws` CLI configured against account `033684811905` (only for tests 7–10)
+- A terminal with the `aws` CLI configured against account `033684811905` (used in Test 1 to fetch the API key, and again in Tests 7–10)
 
-You'll need two values to use the demo. **Get them once** and the browser remembers them in localStorage:
+The demo page asks for two values on first load. You'll paste them into a modal that pops up in Test 1 — get them ready first:
 
-| Value | Source |
-|---|---|
-| **API base URL** | `https://5r97rncsj8.execute-api.us-west-2.amazonaws.com/v1/` |
-| **API key** | run the command below, or copy it from `.env` if you already have it |
+### Value 1 — API base URL
+
+Copy this string exactly:
+
+```
+https://5r97rncsj8.execute-api.us-west-2.amazonaws.com/v1/
+```
+
+### Value 2 — API key
+
+A 40-character secret stored inside AWS. To retrieve it, run this in your terminal:
 
 ```bash
 aws apigateway get-api-key --api-key flinxq1dck --include-value --query value --output text
 ```
 
-The key is a 40-character random string. Treat it like a password — it's the only thing protecting your demo from public abuse.
+Copy what it prints. Treat it like a password — it's the only thing protecting your demo from public abuse.
+
+> If you've used the demo before in this same browser, both values are already remembered in `localStorage` and the modal won't appear in Test 1. You can open Incognito/Private mode to simulate a fresh user, or click the **configure** link in the page header to re-enter them.
 
 ---
 
