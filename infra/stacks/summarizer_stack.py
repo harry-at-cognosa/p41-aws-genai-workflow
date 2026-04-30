@@ -21,6 +21,8 @@ from aws_cdk import (
 from aws_cdk import aws_apigateway as apigw
 from aws_cdk import aws_cloudfront as cloudfront
 from aws_cdk import aws_cloudfront_origins as origins
+from aws_cdk import aws_cloudwatch as cw
+from aws_cdk import aws_cloudwatch_actions as cwa
 from aws_cdk import aws_dynamodb as ddb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -29,6 +31,7 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
 from aws_cdk import aws_s3_notifications as s3n
+from aws_cdk import aws_sns as sns
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
@@ -124,6 +127,18 @@ class SummarizerStack(Stack):
             "LOG_LEVEL": "INFO",
         }
 
+        # Explicit LogGroups for each Lambda. The legacy `log_retention=`
+        # shorthand on Function spins up a custom-resource Lambda just to
+        # set retention; explicit LogGroups are cleaner and let CDK/CFN
+        # tear them down with the stack.
+        def _log_group(node_id: str) -> logs.LogGroup:
+            return logs.LogGroup(
+                self,
+                node_id,
+                retention=logs.RetentionDays.TWO_WEEKS,
+                removal_policy=RemovalPolicy.DESTROY,
+            )
+
         # ── summarize Lambda (S3-triggered) ──────────────────────────────────
         self.summarize_fn = lambda_.Function(
             self,
@@ -132,11 +147,11 @@ class SummarizerStack(Stack):
             architecture=lambda_.Architecture.ARM_64,
             code=lambda_.Code.from_asset(str(repo_root / "lambdas" / "summarize")),
             handler="handler.handler",
+            log_group=_log_group("SummarizeLogGroup"),
             layers=[self.shared_layer],
             memory_size=1024,
             timeout=Duration.seconds(60),
             reserved_concurrent_executions=5,
-            log_retention=logs.RetentionDays.TWO_WEEKS,
             environment={**common_env, "BEDROCK_MODEL_ID": model_id},
             on_failure=destinations.SqsDestination(self.dlq),
             description="Summarize a document via Bedrock Claude on S3 ObjectCreated.",
@@ -180,7 +195,7 @@ class SummarizerStack(Stack):
             layers=[self.shared_layer],
             memory_size=256,
             timeout=Duration.seconds(10),
-            log_retention=logs.RetentionDays.TWO_WEEKS,
+            log_group=_log_group("RequestUploadLogGroup"),
             environment=common_env,
             description="Issue a presigned S3 PUT URL and seed a PENDING DDB row.",
         )
@@ -201,7 +216,7 @@ class SummarizerStack(Stack):
             layers=[self.shared_layer],
             memory_size=256,
             timeout=Duration.seconds(5),
-            log_retention=logs.RetentionDays.TWO_WEEKS,
+            log_group=_log_group("GetSummaryLogGroup"),
             environment=common_env,
             description="Return summary status and (when DONE) the summary body.",
         )
@@ -318,6 +333,154 @@ class SummarizerStack(Stack):
             prune=True,
         )
 
+        # ── Observability: SNS topic + alarms + dashboard ────────────────────
+        # SNS topic with no subscribers by default — `aws sns subscribe` an
+        # email or chatbot to it later. Alarms still fire and are visible
+        # in CloudWatch even with no topic subscribers.
+        self.alarms_topic = sns.Topic(
+            self,
+            "AlarmsTopic",
+            display_name="p41-summarizer alarms",
+        )
+
+        # Alarm: any message in the summarize DLQ is a failure that wasn't
+        # captured by domain-error handling. Period 1m so failures surface
+        # quickly during a demo.
+        dlq_alarm = cw.Alarm(
+            self,
+            "SummarizeDLQDepthAlarm",
+            alarm_name=f"{construct_id}-SummarizeDLQDepth",
+            metric=self.dlq.metric_approximate_number_of_messages_visible(
+                period=Duration.minutes(1),
+                statistic="Maximum",
+            ),
+            threshold=0,
+            comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            evaluation_periods=1,
+            treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
+            alarm_description="Messages in the summarize DLQ — a Lambda invocation failed and didn't recover.",
+        )
+        dlq_alarm.add_alarm_action(cwa.SnsAction(self.alarms_topic))
+
+        # One error-rate alarm per Lambda. evaluating_periods=1 over 5 min
+        # so we surface real failures fast without flapping on transient blips.
+        for fn, label in [
+            (self.summarize_fn, "Summarize"),
+            (self.request_upload_fn, "RequestUpload"),
+            (self.get_summary_fn, "GetSummary"),
+        ]:
+            alarm = cw.Alarm(
+                self,
+                f"{label}ErrorsAlarm",
+                alarm_name=f"{construct_id}-{label}-Errors",
+                metric=fn.metric_errors(period=Duration.minutes(5), statistic="Sum"),
+                threshold=1,
+                comparison_operator=cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                evaluation_periods=1,
+                treat_missing_data=cw.TreatMissingData.NOT_BREACHING,
+                alarm_description=f"{label} Lambda emitted an error in the last 5 minutes.",
+            )
+            alarm.add_alarm_action(cwa.SnsAction(self.alarms_topic))
+
+        # Dashboard. One row per concern: invocations, latency, errors,
+        # DLQ + DDB throttles. Built from standard AWS metric namespaces
+        # so we don't need any custom metric emission from the Lambdas.
+        dash = cw.Dashboard(
+            self,
+            "Dashboard",
+            dashboard_name=f"{construct_id}-overview",
+            default_interval=Duration.hours(1),
+        )
+        dash.add_widgets(
+            cw.GraphWidget(
+                title="Lambda invocations (sum/min)",
+                left=[
+                    fn.metric_invocations(period=Duration.minutes(1), label=label)
+                    for fn, label in [
+                        (self.summarize_fn, "summarize"),
+                        (self.request_upload_fn, "request_upload"),
+                        (self.get_summary_fn, "get_summary"),
+                    ]
+                ],
+                width=12,
+                height=6,
+            ),
+            cw.GraphWidget(
+                title="Lambda errors (sum/min)",
+                left=[
+                    fn.metric_errors(period=Duration.minutes(1), label=label)
+                    for fn, label in [
+                        (self.summarize_fn, "summarize"),
+                        (self.request_upload_fn, "request_upload"),
+                        (self.get_summary_fn, "get_summary"),
+                    ]
+                ],
+                width=12,
+                height=6,
+            ),
+        )
+        dash.add_widgets(
+            cw.GraphWidget(
+                title="summarize duration p50/p95/p99 (ms)",
+                left=[
+                    self.summarize_fn.metric_duration(
+                        period=Duration.minutes(1), statistic=stat, label=stat
+                    )
+                    for stat in ("p50", "p95", "p99")
+                ],
+                width=12,
+                height=6,
+            ),
+            cw.GraphWidget(
+                title="DLQ depth (max/min)",
+                left=[
+                    self.dlq.metric_approximate_number_of_messages_visible(
+                        period=Duration.minutes(1), statistic="Maximum"
+                    )
+                ],
+                width=12,
+                height=6,
+            ),
+        )
+        dash.add_widgets(
+            cw.GraphWidget(
+                title="API Gateway request count (sum/min)",
+                left=[
+                    cw.Metric(
+                        namespace="AWS/ApiGateway",
+                        metric_name="Count",
+                        dimensions_map={
+                            "ApiName": self.api.rest_api_name,
+                            "Stage": self.api.deployment_stage.stage_name,
+                        },
+                        period=Duration.minutes(1),
+                        statistic="Sum",
+                    ),
+                ],
+                width=12,
+                height=6,
+            ),
+            cw.GraphWidget(
+                title="API Gateway 4XX / 5XX (sum/min)",
+                left=[
+                    cw.Metric(
+                        namespace="AWS/ApiGateway",
+                        metric_name=name,
+                        dimensions_map={
+                            "ApiName": self.api.rest_api_name,
+                            "Stage": self.api.deployment_stage.stage_name,
+                        },
+                        period=Duration.minutes(1),
+                        statistic="Sum",
+                        label=name,
+                    )
+                    for name in ("4XXError", "5XXError")
+                ],
+                width=12,
+                height=6,
+            ),
+        )
+
         # ── Stack outputs ────────────────────────────────────────────────────
         CfnOutput(self, "BucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "BucketArn", value=self.bucket.bucket_arn)
@@ -333,4 +496,18 @@ class SummarizerStack(Stack):
             "FrontendUrl",
             value=f"https://{self.frontend_distribution.distribution_domain_name}/",
             description="CloudFront URL for the demo frontend",
+        )
+        CfnOutput(
+            self,
+            "AlarmsTopicArn",
+            value=self.alarms_topic.topic_arn,
+            description="SNS topic for CloudWatch alarms — subscribe email/Slack to receive alerts",
+        )
+        CfnOutput(
+            self,
+            "DashboardUrl",
+            value=(
+                f"https://{self.region}.console.aws.amazon.com/cloudwatch/home"
+                f"?region={self.region}#dashboards:name={construct_id}-overview"
+            ),
         )

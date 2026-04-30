@@ -35,13 +35,31 @@ _STD_KEYS = {
 }
 
 
-def get_logger(name: str = "summarizer") -> logging.Logger:
+class _SafeAdapter(logging.LoggerAdapter):
+    """
+    LoggerAdapter that pre-renames any `extra={…}` key colliding with a
+    LogRecord reserved attribute (e.g. `filename`, `module`, `name`) by
+    prepending `x_`. Without this, calling `log.info(msg, extra={"filename":…})`
+    raises `KeyError: "Attempt to overwrite 'filename' in LogRecord"` —
+    which bit the request_upload Lambda in Phase 3.
+    """
+
+    def process(self, msg, kwargs):
+        extra = kwargs.get("extra")
+        if extra:
+            renamed = {}
+            for k, v in extra.items():
+                renamed[("x_" + k) if k in _STD_KEYS else k] = v
+            kwargs["extra"] = renamed
+        return msg, kwargs
+
+
+def get_logger(name: str = "summarizer") -> logging.LoggerAdapter:
     logger = logging.getLogger(name)
-    if logger.handlers:
-        return logger
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
-    logger.addHandler(handler)
-    logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
-    logger.propagate = False
-    return logger
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(JsonFormatter())
+        logger.addHandler(handler)
+        logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
+        logger.propagate = False
+    return _SafeAdapter(logger, {})
