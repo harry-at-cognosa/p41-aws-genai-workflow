@@ -29,7 +29,7 @@ from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
-DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
 _FOUNDATION_MODEL_REGIONS = ("us-east-1", "us-east-2", "us-west-2")
 
 
