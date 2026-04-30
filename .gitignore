@@ -27,6 +27,7 @@ node_modules/
 # AWS CDK
 cdk.out/
 .cdk.staging/
+infra/_layer_build/
 
 # Editor / tooling
 .idea/
