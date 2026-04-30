@@ -2,10 +2,379 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>p41 — document summarizer (placeholder)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>p41 — document summarizer</title>
+  <style>
+    :root {
+      --bg: #f7f7f6;
+      --fg: #1a1a1a;
+      --muted: #6a6a6a;
+      --line: #e2e1de;
+      --accent: #2b6cb0;
+      --accent-hover: #244e84;
+      --ok: #2f855a;
+      --warn: #b7791f;
+      --bad: #c53030;
+      --card: #ffffff;
+      --code-bg: #f1f1ef;
+      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text",
+            ui-sans-serif, system-ui, sans-serif;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0;
+    }
+    h1 small {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+    .config-link {
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+      border-bottom: 1px dotted var(--muted);
+      cursor: pointer;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      padding: 0 0 1px;
+      font-family: inherit;
+    }
+    .config-link:hover { color: var(--fg); border-bottom-color: var(--fg); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 28px;
+    }
+
+    .upload-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      border: 1.5px dashed var(--line);
+      border-radius: 8px;
+      transition: border-color 120ms ease, background 120ms ease;
+      cursor: pointer;
+      text-align: center;
+    }
+    .upload-area:hover { border-color: var(--accent); background: rgba(43, 108, 176, 0.03); }
+    .upload-area.dragover { border-color: var(--accent); background: rgba(43, 108, 176, 0.06); }
+    .upload-area p { margin: 8px 0; color: var(--muted); font-size: 14px; }
+    .upload-area .primary { color: var(--fg); font-size: 16px; }
+    .upload-area input[type=file] { display: none; }
+
+    button.primary-btn {
+      appearance: none;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    button.primary-btn:hover { background: var(--accent-hover); }
+    button.primary-btn:disabled { background: #aaa; cursor: not-allowed; }
+
+    .status {
+      margin-top: 24px;
+      padding: 16px 18px;
+      border-radius: 6px;
+      background: var(--code-bg);
+      font-size: 14px;
+      color: var(--muted);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      white-space: pre-wrap;
+    }
+    .status.ok    { color: var(--ok); }
+    .status.bad   { color: var(--bad); }
+    .status.warn  { color: var(--warn); }
+
+    .summary {
+      margin-top: 24px;
+      padding: 28px 32px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    .summary h2 {
+      font-size: 16px;
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .summary .meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    .summary .body { font-size: 15.5px; line-height: 1.65; }
+    .summary .body h1, .summary .body h2, .summary .body h3 { margin-top: 1.4em; }
+    .summary .body h1 { font-size: 1.4em; }
+    .summary .body h2 { font-size: 1.2em; }
+    .summary .body h3 { font-size: 1.05em; }
+    .summary .body code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+    .summary .body blockquote {
+      border-left: 3px solid var(--line);
+      margin: 1em 0;
+      padding: 4px 0 4px 14px;
+      color: var(--muted);
+    }
+    .summary .body ul, .summary .body ol { padding-left: 22px; }
+
+    /* Config modal */
+    .modal-bg {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 28px;
+      max-width: 480px;
+      width: calc(100% - 32px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    }
+    .modal h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    .modal p  { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+    .modal label { font-size: 13px; font-weight: 500; display: block; margin-bottom: 4px; }
+    .modal input {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      font: inherit;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+    .modal input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+    .modal .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+    .modal button.secondary {
+      background: none; color: var(--muted); border: 1px solid var(--line);
+      border-radius: 5px; padding: 8px 14px; font: inherit; font-size: 14px;
+      cursor: pointer;
+    }
+    .modal button.secondary:hover { border-color: var(--fg); color: var(--fg); }
+
+    footer {
+      margin-top: 64px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+    footer code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  </style>
 </head>
 <body>
-  <h1>p41 document summarizer</h1>
-  <p>Phase 0 placeholder. The interactive upload UI is implemented in Phase 4.</p>
+  <main>
+    <header>
+      <h1>p41 <small>document summarizer</small></h1>
+      <button class="config-link" id="config-btn">configure</button>
+    </header>
+
+    <div class="card">
+      <label class="upload-area" id="drop">
+        <span class="primary"><strong>Choose a file</strong> or drop one here</span>
+        <p>plain text or markdown · up to 1&nbsp;MB</p>
+        <input type="file" id="file" accept=".txt,.md,text/plain,text/markdown" />
+      </label>
+    </div>
+
+    <div class="status" id="status" hidden></div>
+    <div class="summary" id="summary" hidden>
+      <h2>Summary</h2>
+      <div class="meta" id="meta"></div>
+      <div class="body" id="body"></div>
+    </div>
+
+    <footer>
+      v1.0 · <code>POST /uploads</code> → S3 → Lambda → Bedrock Claude →
+      <code>GET /summaries/{id}</code>
+    </footer>
+  </main>
+
+  <div class="modal-bg" id="modal-bg">
+    <div class="modal">
+      <h2>API configuration</h2>
+      <p>The static page lives in your account. Paste the API base URL and API
+        key from your <code>cdk deploy</code> outputs (or <code>.env</code>).
+        Stored locally in your browser; never sent anywhere except your own API.</p>
+      <label for="api-url">API base URL</label>
+      <input id="api-url" type="url" placeholder="https://xxxx.execute-api.us-west-2.amazonaws.com/v1/" />
+      <label for="api-key">API key</label>
+      <input id="api-key" type="password" placeholder="x-api-key value" />
+      <div class="row">
+        <button class="secondary" id="cancel-config">Cancel</button>
+        <button class="primary-btn" id="save-config">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    const LS_URL  = "p41.api_url";
+    const LS_KEY  = "p41.api_key";
+
+    const $ = (id) => document.getElementById(id);
+    const fileInput = $("file");
+    const drop = $("drop");
+    const statusEl = $("status");
+    const summary = $("summary");
+    const meta = $("meta");
+    const body = $("body");
+    const modal = $("modal-bg");
+
+    function getConfig() {
+      return {
+        url: localStorage.getItem(LS_URL) || "",
+        key: localStorage.getItem(LS_KEY) || "",
+      };
+    }
+
+    function ensureConfig() {
+      const { url, key } = getConfig();
+      if (!url || !key) { openModal(); return false; }
+      return true;
+    }
+
+    function openModal() {
+      const { url, key } = getConfig();
+      $("api-url").value = url;
+      $("api-key").value = key;
+      modal.classList.add("open");
+    }
+    function closeModal() { modal.classList.remove("open"); }
+
+    $("config-btn").addEventListener("click", openModal);
+    $("cancel-config").addEventListener("click", closeModal);
+    $("save-config").addEventListener("click", () => {
+      const url = $("api-url").value.trim().replace(/\/+$/, "") + "/";
+      const key = $("api-key").value.trim();
+      if (!url || !key) return;
+      localStorage.setItem(LS_URL, url);
+      localStorage.setItem(LS_KEY, key);
+      closeModal();
+    });
+
+    function setStatus(msg, kind) {
+      statusEl.hidden = false;
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (kind ? " " + kind : "");
+    }
+
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("dragover"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      if (e.dataTransfer.files.length) startUpload(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length) startUpload(fileInput.files[0]);
+    });
+
+    async function startUpload(file) {
+      summary.hidden = true;
+      if (!ensureConfig()) return;
+      const { url, key } = getConfig();
+
+      setStatus("Requesting upload URL…");
+      let resp;
+      try {
+        resp = await fetch(url + "uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": key },
+          body: JSON.stringify({ filename: file.name }),
+        });
+      } catch (e) { setStatus("network error: " + e.message, "bad"); return; }
+      if (!resp.ok) { setStatus("POST /uploads failed: " + resp.status + " " + (await resp.text()), "bad"); return; }
+      const { summary_id, upload_url } = await resp.json();
+
+      setStatus("Uploading " + file.name + "…");
+      try {
+        const putResp = await fetch(upload_url, { method: "PUT", body: file });
+        if (!putResp.ok) { setStatus("upload failed: " + putResp.status, "bad"); return; }
+      } catch (e) { setStatus("upload error: " + e.message, "bad"); return; }
+
+      setStatus("Summarizing… (typically 3–10 s)", "warn");
+      await pollSummary(url, key, summary_id);
+    }
+
+    async function pollSummary(url, key, id) {
+      const start = Date.now();
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        let resp;
+        try {
+          resp = await fetch(url + "summaries/" + id, { headers: { "x-api-key": key } });
+        } catch (e) { setStatus("poll error: " + e.message, "bad"); return; }
+        if (!resp.ok) { setStatus("GET /summaries failed: " + resp.status, "bad"); return; }
+        const data = await resp.json();
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        if (data.status === "DONE") {
+          setStatus("done in " + elapsed + "s", "ok");
+          renderSummary(data, elapsed);
+          return;
+        }
+        if (data.status === "FAILED") {
+          setStatus("failed: " + (data.error_message || "unknown"), "bad");
+          return;
+        }
+        setStatus("status=" + data.status + " (" + elapsed + "s elapsed)", "warn");
+      }
+      setStatus("timed out waiting for summary", "bad");
+    }
+
+    function renderSummary(data, elapsed) {
+      meta.textContent = "model=" + data.model_id +
+        "  ·  " + data.input_tokens + " in / " + data.output_tokens + " out tokens" +
+        "  ·  " + elapsed + "s";
+      body.innerHTML = marked.parse(data.summary);
+      summary.hidden = false;
+    }
+
+    if (!getConfig().url || !getConfig().key) openModal();
+  </script>
 </body>
 </html>

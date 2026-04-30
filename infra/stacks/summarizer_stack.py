@@ -19,12 +19,15 @@ from aws_cdk import (
     Stack,
 )
 from aws_cdk import aws_apigateway as apigw
+from aws_cdk import aws_cloudfront as cloudfront
+from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_dynamodb as ddb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_lambda_destinations as destinations
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_s3_deployment as s3deploy
 from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
@@ -269,6 +272,52 @@ class SummarizerStack(Stack):
         plan.add_api_key(self.api_key)
         plan.add_api_stage(stage=self.api.deployment_stage)
 
+        # ── Static frontend (CloudFront + S3 web/) ───────────────────────────
+        # CloudFront serves the demo page from s3://<bucket>/web/ via Origin
+        # Access Control — the bucket stays private; only CF can read it.
+        # PriceClass_100 keeps the distribution to US/EU edge locations,
+        # which is plenty for a personal demo.
+        self.frontend_distribution = cloudfront.Distribution(
+            self,
+            "FrontendDistribution",
+            comment="p41-summarizer demo frontend",
+            price_class=cloudfront.PriceClass.PRICE_CLASS_100,
+            default_root_object="index.html",
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origins.S3BucketOrigin.with_origin_access_control(
+                    self.bucket,
+                    origin_path="/web",
+                ),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD,
+                # Short cache so iterating on the page doesn't fight CDN caching.
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+                compress=True,
+            ),
+            error_responses=[
+                cloudfront.ErrorResponse(
+                    http_status=404,
+                    response_http_status=404,
+                    response_page_path="/index.html",
+                    ttl=Duration.seconds(0),
+                ),
+            ],
+        )
+
+        # Deploy frontend/ → s3://<bucket>/web/. CDK invalidates CF on each
+        # deploy so cached old versions don't linger.
+        s3deploy.BucketDeployment(
+            self,
+            "FrontendDeployment",
+            sources=[s3deploy.Source.asset(str(repo_root / "frontend"))],
+            destination_bucket=self.bucket,
+            destination_key_prefix="web",
+            distribution=self.frontend_distribution,
+            distribution_paths=["/*"],
+            prune=True,
+        )
+
         # ── Stack outputs ────────────────────────────────────────────────────
         CfnOutput(self, "BucketName", value=self.bucket.bucket_name)
         CfnOutput(self, "BucketArn", value=self.bucket.bucket_arn)
@@ -279,3 +328,9 @@ class SummarizerStack(Stack):
         CfnOutput(self, "BedrockModelId", value=model_id)
         CfnOutput(self, "ApiBaseUrl", value=self.api.url)
         CfnOutput(self, "ApiKeyId", value=self.api_key.key_id)
+        CfnOutput(
+            self,
+            "FrontendUrl",
+            value=f"https://{self.frontend_distribution.distribution_domain_name}/",
+            description="CloudFront URL for the demo frontend",
+        )
