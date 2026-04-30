@@ -60,3 +60,22 @@ def test_options_returns_204_for_cors_preflight(bucket, table):
     resp = ru.handler({"httpMethod": "OPTIONS"}, None)
     assert resp["statusCode"] == 204
     assert "Access-Control-Allow-Origin" in resp["headers"]
+
+
+def test_pdf_filename_preserves_extension_in_key(bucket, table):
+    with patch("boto3.client") as mock_client:
+        mock_client.return_value.generate_presigned_url.return_value = "https://x"
+        resp = ru.handler(_event({"filename": "research-paper.PDF"}), None)
+
+    body = json.loads(resp["body"])
+    key = mock_client.return_value.generate_presigned_url.call_args.kwargs["Params"]["Key"]
+    # Extension is normalized to lowercase.
+    assert key == f"uploads/{body['summary_id']}.pdf"
+
+
+def test_unsupported_extension_returns_400(bucket, table):
+    resp = ru.handler(_event({"filename": "spreadsheet.xlsx"}), None)
+    assert resp["statusCode"] == 400
+    body = json.loads(resp["body"])
+    assert "xlsx" in body["error"]
+    assert "txt" in body["accepted"] and "pdf" in body["accepted"]

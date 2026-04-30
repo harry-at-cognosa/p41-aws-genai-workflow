@@ -4,3 +4,8 @@ pytest>=8.0,<9.0
 moto[s3,dynamodb,sqs]>=5.0,<6.0
 boto3>=1.34
 requests>=2.31
+
+# Lambda runtime deps that the summarize handler imports — installed
+# locally so unit tests can exercise the extractors without mocks.
+pypdf>=4.0,<6.0
+docx2txt>=0.8,<1.0

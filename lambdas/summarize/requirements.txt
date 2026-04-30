@@ -1,0 +1,5 @@
+# Bundled into the summarize Lambda's deployment package at synth time
+# (see infra/stacks/summarizer_stack.py::_build_summarize_asset).
+# Both pure-Python — no platform-specific wheels needed.
+pypdf>=4.0,<6.0
+docx2txt>=0.8,<1.0

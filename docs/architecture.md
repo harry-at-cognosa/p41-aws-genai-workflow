@@ -23,7 +23,9 @@ For the build schedule, see `project_plan.md`. For the v2.0 (FastAPI/Postgres) d
 | **Region** | `us-west-2` | Matches user's default AWS region; Bedrock + Claude fully supported. |
 | **Tests** | `pytest` + `moto` (unit); `cdk synth` snapshot (infra); `tests/integration/test_e2e.py` against deployed stack | |
 
-**Explicitly NOT in v1.0**: VPC, Cognito, multi-tenant scoping, PDF/DOCX, streaming responses, prompt-version A/B, RAG/embeddings.
+**Explicitly NOT in v1.0**: VPC, Cognito, multi-tenant scoping, OCR (image-only PDFs), streaming responses, prompt-version A/B, RAG/embeddings.
+
+**Accepted in v1.0** (added in Phase 7): `.txt`, `.md`, `.pdf` (text-bearing only), `.docx`.
 
 ---
 

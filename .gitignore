@@ -28,6 +28,7 @@ node_modules/
 cdk.out/
 .cdk.staging/
 infra/_layer_build/
+infra/_summarize_build/
 
 # Editor / tooling
 .idea/

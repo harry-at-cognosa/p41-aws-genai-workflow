@@ -7,7 +7,8 @@ Also seeds a PENDING row in the Summaries table so polling works as soon
 as the caller has the summary_id.
 
 Request body (JSON):
-    { "filename": "my_document.txt" }   — optional but recommended
+    { "filename": "my_document.pdf" }   — required to pick the right
+                                          extractor (txt/md/pdf/docx)
 
 Response (JSON):
     { "summary_id": "...",
@@ -25,6 +26,7 @@ import boto3
 from botocore.config import Config
 
 from shared import ddb, s3util
+from shared.extractors import ACCEPTED_EXTENSIONS, extension_of
 from shared.logging import get_logger
 
 log = get_logger("request_upload")
@@ -44,13 +46,22 @@ def handler(event, context):
         return _response(204, {})
 
     filename = _parse_filename(event)
+    ext = extension_of(filename) or "txt"
+    if ext not in ACCEPTED_EXTENSIONS:
+        return _response(
+            400,
+            {
+                "error": f"unsupported file type {ext!r}",
+                "accepted": list(ACCEPTED_EXTENSIONS),
+            },
+        )
+
     summary_id = str(uuid.uuid4())
-    key = f"{s3util.UPLOADS_PREFIX}{summary_id}.txt"
+    # Preserve the original extension in the S3 key. The summarize Lambda
+    # parses it back out to pick the right extractor.
+    key = f"{s3util.UPLOADS_PREFIX}{summary_id}.{ext}"
 
     bucket = s3util.bucket_name()
-    # SigV4 + virtual-hosted-style addressing is required for buckets outside
-    # us-east-1; without it, presigned PUTs against a regional bucket hit a
-    # 307 TemporaryRedirect that breaks the signature.
     s3 = boto3.client(
         "s3",
         region_name=os.environ.get("AWS_REGION", "us-west-2"),

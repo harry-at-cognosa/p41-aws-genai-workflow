@@ -27,12 +27,20 @@ def bucket_name() -> str:
     return name
 
 
-def read_text(*, key: str) -> str:
-    """Read a UTF-8 text object from the bucket. Raises InvalidDocumentError on bad bytes."""
+def read_bytes(*, key: str) -> bytes:
+    """Read raw bytes from an S3 object. No format assumptions."""
     obj = _client().get_object(Bucket=bucket_name(), Key=key)
-    body = obj["Body"].read()
+    return obj["Body"].read()
+
+
+def read_text(*, key: str) -> str:
+    """Read a UTF-8 text object. Raises InvalidDocumentError on bad bytes.
+
+    Kept for callers that already know they're dealing with text; the
+    summarize Lambda uses read_bytes + extractors.extract_text now.
+    """
     try:
-        return body.decode("utf-8")
+        return read_bytes(key=key).decode("utf-8")
     except UnicodeDecodeError as e:
         raise InvalidDocumentError(f"object {key} is not valid UTF-8 text") from e
 

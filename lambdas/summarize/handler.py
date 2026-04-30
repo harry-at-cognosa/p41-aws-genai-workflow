@@ -2,8 +2,9 @@
 summarize Lambda — triggered by S3 ObjectCreated:* on uploads/*.
 
 Thin orchestrator: parses the S3 event, walks the document through the
-PROCESSING → DONE | FAILED state machine, and delegates the actual model
-call to the pure summarize_text() function in shared/bedrock.py.
+PROCESSING → DONE | FAILED state machine, dispatches the bytes through
+extractors.extract_text (which handles txt/md/pdf/docx), and delegates
+the model call to the pure summarize_text() function in shared/bedrock.py.
 
 Failures are recorded in DDB *and* re-raised — re-raising lets Lambda's
 async destination route the bad event to the SQS DLQ, which we monitor
@@ -16,6 +17,7 @@ import urllib.parse
 from shared import ddb, s3util
 from shared.bedrock import summarize_text
 from shared.errors import InvalidDocumentError, ModelInvocationError, SummarizerError
+from shared.extractors import extract_text
 from shared.logging import get_logger
 
 log = get_logger("summarize")
@@ -26,9 +28,6 @@ MODEL_ID = os.environ.get(
 
 
 def handler(event, context):
-    # An S3 PutObject event can carry multiple records when the upload is
-    # part of a batch; iterate even though our presigned-URL flow always
-    # uploads one object at a time.
     for record in event.get("Records", []):
         _process_record(record)
 
@@ -37,7 +36,6 @@ def _process_record(record: dict) -> None:
     s3_info = record.get("s3", {})
     bucket = s3_info.get("bucket", {}).get("name")
     raw_key = s3_info.get("object", {}).get("key", "")
-    # S3 event keys are URL-encoded (spaces become +, etc.). Decode first.
     key = urllib.parse.unquote_plus(raw_key)
 
     if not bucket or not key:
@@ -49,7 +47,11 @@ def _process_record(record: dict) -> None:
 
     try:
         ddb.mark_processing(summary_id=summary_id)
-        text = s3util.read_text(key=key)
+        # Read raw bytes first; the extractor decides how to turn them into
+        # text based on the key's extension (preserved from the user's
+        # original filename by request_upload).
+        raw = s3util.read_bytes(key=key)
+        text = extract_text(filename=key, raw_bytes=raw)
         result = summarize_text(text, model_id=MODEL_ID)
         summary_key = s3util.write_summary(summary_id=summary_id, text=result.text)
         ddb.mark_done(
@@ -72,7 +74,6 @@ def _process_record(record: dict) -> None:
         ddb.mark_failed(summary_id=summary_id, error_message=str(e))
         raise
     except Exception as e:
-        # Unknown failure — record it and re-raise so the DLQ catches it.
         log.exception("summarize failed (unexpected)", extra={"summary_id": summary_id})
         ddb.mark_failed(summary_id=summary_id, error_message=f"unexpected: {e!r}")
         raise

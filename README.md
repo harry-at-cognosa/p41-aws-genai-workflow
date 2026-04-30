@@ -1,6 +1,6 @@
 # p41-aws-genai-workflow
 
-Small AWS-native serverless proof-of-concept: upload a plain-text document, summarize it via Claude on Amazon Bedrock, retrieve the summary via API or browser. End-to-end in ~10 seconds. ~$0.005 per summary.
+Small AWS-native serverless proof-of-concept: upload a `.txt`, `.md`, `.pdf`, or `.docx` document, summarize it via Claude on Amazon Bedrock, retrieve the summary via API or browser. End-to-end in ~10 seconds. ~$0.005 per summary.
 
 This is **v1.0** — a personal MVP. v2.0 ports the same summarization core onto a multi-user FastAPI + PostgreSQL platform on a Mac mini. See `docs/v2_roadmap.md`.
 
@@ -113,6 +113,15 @@ v1.0 complete. Phases 0–6 all shipped.
 | 4 | CloudFront-served demo frontend |
 | 5 | CloudWatch alarms + dashboard + hardened logger |
 | 6 | Pytest unit + integration suite + polished docs |
+| 7 | PDF + DOCX support via in-Lambda native extraction |
+
+### Accepted file types
+
+| Type | How it's extracted |
+|---|---|
+| `.txt`, `.md` | UTF-8 decode |
+| `.pdf` | `pypdf` native text extraction. Image-only/scanned PDFs are rejected with a clear message; OCR via AWS Textract is on the v1.1 roadmap. |
+| `.docx` | `docx2txt` |
 
 ## Documentation
 

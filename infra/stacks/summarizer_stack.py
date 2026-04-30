@@ -10,6 +10,8 @@ Phase 5: CloudWatch alarms and dashboard.
 
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from aws_cdk import (
@@ -48,6 +50,42 @@ def _build_shared_layer_asset(repo_root: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(repo_root / "lambdas" / "shared", target)
     return layer_root
+
+
+def _build_summarize_asset(repo_root: Path) -> Path:
+    """
+    Stage lambdas/summarize/ + its pip-installed Python deps into a build
+    dir. CDK uses the build dir as the Lambda's deployment package so the
+    runtime has both the handler and (pypdf, docx2txt) on sys.path.
+
+    Both deps are pure-Python wheels, so a host-side pip install produces
+    a Lambda-compatible artifact regardless of which platform the dev
+    machine is on.
+    """
+    build_root = repo_root / "infra" / "_summarize_build"
+    src = repo_root / "lambdas" / "summarize"
+    if build_root.exists():
+        shutil.rmtree(build_root)
+    build_root.mkdir(parents=True)
+    # Copy the handler file(s) — but not requirements.txt, which Lambda
+    # would otherwise sit alongside the code unused.
+    for child in src.iterdir():
+        if child.name == "requirements.txt":
+            continue
+        if child.is_dir():
+            shutil.copytree(child, build_root / child.name)
+        else:
+            shutil.copy2(child, build_root / child.name)
+    # Install deps into the build dir so they sit next to handler.py.
+    subprocess.check_call(
+        [
+            sys.executable, "-m", "pip", "install",
+            "--quiet",
+            "-r", str(src / "requirements.txt"),
+            "-t", str(build_root),
+        ]
+    )
+    return build_root
 
 
 class SummarizerStack(Stack):
@@ -140,12 +178,13 @@ class SummarizerStack(Stack):
             )
 
         # ── summarize Lambda (S3-triggered) ──────────────────────────────────
+        summarize_asset = _build_summarize_asset(repo_root)
         self.summarize_fn = lambda_.Function(
             self,
             "SummarizeFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
             architecture=lambda_.Architecture.ARM_64,
-            code=lambda_.Code.from_asset(str(repo_root / "lambdas" / "summarize")),
+            code=lambda_.Code.from_asset(str(summarize_asset)),
             handler="handler.handler",
             log_group=_log_group("SummarizeLogGroup"),
             layers=[self.shared_layer],
