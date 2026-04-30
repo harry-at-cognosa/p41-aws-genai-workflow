@@ -1,0 +1,44 @@
+# iCloud Drive lock files
+20000
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local env
+.env
+.env.local
+
+# Node / npm
+node_modules/
+
+# AWS CDK
+cdk.out/
+.cdk.staging/
+
+# Editor / tooling
+.idea/
+.vscode/
+*.swp
+
+# Claude Code per-project state
+.claude/
+
+# User scratch
+p41_initial_prompt.txt.txt
+
+# Word/Pages exports of markdown docs (review copies; markdown is the source of truth)
+docs/*.docx
+docs/*.pages

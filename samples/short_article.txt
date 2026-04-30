@@ -1,0 +1,9 @@
+The Curious Case of the Office Coffee Pot
+
+Last Tuesday morning, the coffee pot in the third-floor break room of Acme Industries finished brewing twelve minutes earlier than its scheduled 7:00 a.m. start time, and no one knew why. The early brew was first noticed by Janet Pillai, a senior accountant, who arrived at 6:55 a.m. to find a full carafe and a faint smell of cinnamon — a flavor profile no one in the office admitted to programming.
+
+Acme's facilities team checked the pot's smart-scheduler logs and found a single override entry from 6:48 a.m., authenticated by a guest credential that had not been used in seven months. The credential belonged to Marco Lin, a former summer intern who had returned the previous evening to drop off a forgotten textbook.
+
+When asked, Lin laughed and admitted he'd been showing his younger brother how the office coffee pot could be controlled from a phone. "I forgot to log out," he said. "Sorry about the cinnamon — that's my brother's favorite."
+
+The facilities team has since rotated all guest credentials, posted a sign reminding visitors to log out of shared systems, and quietly approved a $14 budget line for cinnamon, which proved unexpectedly popular.
